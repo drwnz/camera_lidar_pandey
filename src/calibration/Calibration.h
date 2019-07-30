@@ -1,7 +1,7 @@
 #ifndef _CALIBRATION_H_
 #define _CALIBRATION_H_
 /**
- * The base class for scan representation.  
+ * The base class for scan representation.
  */
 
 //Standard C/C++ Library
@@ -9,9 +9,16 @@
 #include <fstream>
 #include <string.h>
 
+//PCL
+#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+
 //Opencv
-#include <opencv/cv.h>
-#include <opencv/highgui.h>
+// #include <opencv/cv.h>
+// #include <opencv/highgui.h>
+
+#include "opencv2/imgproc.hpp"
+#include "opencv2/highgui.hpp"
 
 //GSL (GNU Scientific Library)
 #include <gsl/gsl_linalg.h>
@@ -68,13 +75,13 @@ struct _Point3d
     float y;
     float z;
     int refc;
-    //ratio of distance of the point from 
+    //ratio of distance of the point from
     //laser center to max distance
     float range; //[0,1]
 };
 
 //Scan data structure. Points in laser reference system
-typedef struct _PointCloud PointCloud_t; 
+typedef struct _PointCloud PointCloud_t;
 struct _PointCloud
 {
     std::vector<Point3d_t> points;
@@ -92,18 +99,18 @@ struct _GridParam
     //grid step
     double gstTrans;
     double gstRot;
-};  
+};
 
 //Image data structure
 typedef struct _Image Image_t;
 struct _Image
 {
-    std::vector<IplImage*> image;
+    std::vector<cv::Mat> image;
 };
 
 namespace perls
 {
-    class Probability 
+    class Probability
     {
         public:
           Probability (){};
@@ -124,7 +131,7 @@ namespace perls
           int count;
     };
 
-    class Histogram 
+    class Histogram
     {
         public:
           Histogram (){};
@@ -139,7 +146,7 @@ namespace perls
           //joint Histogram
           cv::Mat jointHist;
           cv::Mat refcHist;
-          cv::Mat grayHist; 
+          cv::Mat grayHist;
           int count;
           int gray_sum;
           int refc_sum;
@@ -157,7 +164,8 @@ namespace perls
           int m_estimatorType;
           double m_corrCoeff;
           int    load_camera_parameters ();
-          int    load_point_cloud (char* scanFile);
+          int    load_point_cloud_pcd (char* scanFile);
+          int    load_point_cloud_txt (char* scanFile);
           int    load_image (int imageIndex);
           int    release_image (Image_t *image);
           void   load_mask ();
@@ -173,31 +181,31 @@ namespace perls
           /*****************************/
 
           /**Cost Functions**/
-          float mi_cost (ssc_pose_t x0); 
+          float mi_cost (ssc_pose_t x0);
           float chi_square_cost (ssc_pose_t x0);
           /*****************************/
 
           /** Covariance Matrix**/
           gsl_matrix* calculate_covariance_matrix (ssc_pose_t x);
           /*****************************/
-          
-          /**Optimization Functions**/ 
+
+          /**Optimization Functions**/
           float gradient_descent_search (ssc_pose_t x0);
           float exhaustive_grid_search (ssc_pose_t x0);
           /****************************/
-          
+
           /**Other optimization functions**/
           /**The definition of these functions can be found in Calibration_deprecated.cpp**/
           //GSL minimization
           static double gsl_f (const gsl_vector *x, void *params);
-          static void  gsl_df (const gsl_vector *x0_hl, void *params, gsl_vector *g); 
-          static void  gsl_fdf (const gsl_vector *x0_hl, void *params, double *f, gsl_vector *g); 
+          static void  gsl_df (const gsl_vector *x0_hl, void *params, gsl_vector *g);
+          static void  gsl_fdf (const gsl_vector *x0_hl, void *params, double *f, gsl_vector *g);
           float gsl_minimizer (ssc_pose_t x0);
           float gsl_minimizer_nmsimplex (ssc_pose_t x0, double step_trans, double step_rot);
           //Grid search rotation/translation alternatively
-          float grid_search_rot_trans (ssc_pose_t x0); 
-          float grid_search_rotation (GridParam_t* gridParam); 
-          float grid_search_translation (GridParam_t *gridParam); 
+          float grid_search_rot_trans (ssc_pose_t x0);
+          float grid_search_rotation (GridParam_t* gridParam);
+          float grid_search_translation (GridParam_t *gridParam);
           /*****************************/
        private:
           std::vector<PointCloud_t> m_vecPointClouds;
@@ -212,7 +220,7 @@ namespace perls
           cv::Mat m_grayTarget;
           cv::Mat m_refcTarget;
           int m_numBins;
-          int m_binFraction; 
+          int m_binFraction;
     };
-}     
+}
 #endif //_CALIBRATION_H_

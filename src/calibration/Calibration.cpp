@@ -13,22 +13,22 @@ namespace perls
         {
             fptr = fopen (configFile, "r");
             this->m_ConfigHandle = config_parse_file (fptr, NULL);
-        }  
+        }
         else
             this->m_ConfigHandle = config_parse_default ();
-        
+
         if (this->m_ConfigHandle == NULL)
         {
             printf ("Error in opening config file\n");
             return;
         }
-    
+
         //get initial guess
         config_get_double_array (this->m_ConfigHandle, "calibration.initial_guess.X0", this->m_X0, 6);
         printf ("initial guess:\n");
         for (int i = 3; i < 6; i++)
             this->m_X0[i] = this->m_X0[i]*DTOR;
-    
+
         //load scans
         char *scan_folder;
         if (config_get_str (this->m_ConfigHandle, "calibration.scan.scan_folder", &scan_folder) < 0)
@@ -51,44 +51,55 @@ namespace perls
             get_random_numbers (1, total_scans, use_scans, this->m_NumScans);
         else
             config_get_int_array (this->m_ConfigHandle, "calibration.scan.use_scans", use_scans, this->m_NumScans);
-     
+
         config_get_int (this->m_ConfigHandle, "calibration.cameras.num_cameras", &this->m_NumCams);
 
-        //Load these scans and corresponding images  
+        //Load these scans and corresponding images
         for (int s = 0; s < this->m_NumScans; s++)
         {
           char scan_file[256];
           this->m_scanIndex = use_scans[s];
           sprintf (scan_file, "%s/%s%04d.%s", scan_folder, scan_base_name,  use_scans[s], scan_type);
           printf ("%s\n", scan_file);
-        
+
           //load scan
-          if (load_point_cloud (scan_file) < 0)
+          if (strcmp(scan_type, "txt") == 0){
+            if (load_point_cloud_txt (scan_file) < 0)
+              return;
+          }
+          else if (strcmp(scan_type, "pcd") == 0){
+            if (load_point_cloud_pcd (scan_file) < 0)
+              return;
+          }
+          else{
+            printf ("Error: Unknown point cloud file type: %s\n", scan_type);
             return;
-        
+          }
+
+
           //load images
           if (load_image (use_scans[s]) < 0)
             return;
         }
-        
+
         //load Mask
         load_mask ();
-    
+
         //load camera parameters
         if (load_camera_parameters () < 0)
           return;
-  
+
         //Number of bins used
         this->m_binFraction = config_get_int_or_default (this->m_ConfigHandle, "calibration.bin_fraction", 1);
         this->m_numBins = MAX_BINS/this->m_binFraction;
- 
+
         this->m_estimatorType = config_get_int_or_default (this->m_ConfigHandle, "calibration.estimator_type", 1);
         //set target distribution;
 #if 1
         this->m_jointTarget = cv::Mat::eye (this->m_numBins, this->m_numBins, CV_32FC1)/(this->m_numBins);
         //this->m_jointTarget = this->m_jointTarget + 1.0/(256*256);
         //this->m_jointTarget = this->m_jointTarget/2.0;
-        //cv::GaussianBlur (this->m_jointTarget, this->m_jointTarget, cv::Size (0,0), 25);  
+        //cv::GaussianBlur (this->m_jointTarget, this->m_jointTarget, cv::Size (0,0), 25);
         this->m_grayTarget = cv::Mat::ones (1, this->m_numBins, CV_32FC1)/this->m_numBins;
         this->m_refcTarget = cv::Mat::ones (1, this->m_numBins, CV_32FC1)/this->m_numBins;
 #endif
@@ -97,10 +108,10 @@ namespace perls
         FILE *fptr_joint = fopen ("jointProb.txt", "r");
         FILE *fptr_refc = fopen ("refcProb.txt", "r");
         FILE *fptr_gray = fopen ("grayProb.txt", "r");
-   
+
         this->m_jointTarget = cv::Mat::zeros (this->m_numBins, this->m_numBins, CV_32FC1);
-        this->m_grayTarget = cv::Mat::zeros (1, this->m_numBins, CV_32FC1); 
-        this->m_refcTarget = cv::Mat::zeros (1, this->m_numBins, CV_32FC1); 
+        this->m_grayTarget = cv::Mat::zeros (1, this->m_numBins, CV_32FC1);
+        this->m_refcTarget = cv::Mat::zeros (1, this->m_numBins, CV_32FC1);
         int tempi, tempj;
         float sum = 0;
         for (int i = 0; i < this->m_numBins; i++)
@@ -114,12 +125,12 @@ namespace perls
             this->m_jointTarget.at<float> (i, i) = this->m_refcTarget.at<float>(i) * this->m_grayTarget.at<float>(i);
             //sum = sum + this->m_jointTarget.at<float> (i, i);
         }
-        //this->m_jointTarget = this->m_jointTarget/sum; 
-        //cv::GaussianBlur (this->m_jointTarget, this->m_jointTarget, cv::Size (0,0), 10);  
-        
-        fclose (fptr_joint);  
-        fclose (fptr_refc);  
-        fclose (fptr_gray);  
+        //this->m_jointTarget = this->m_jointTarget/sum;
+        //cv::GaussianBlur (this->m_jointTarget, this->m_jointTarget, cv::Size (0,0), 10);
+
+        fclose (fptr_joint);
+        fclose (fptr_refc);
+        fclose (fptr_gray);
 #endif
 
         //free
@@ -138,14 +149,14 @@ namespace perls
 
         release_image (&this->m_Mask);
     }
-    
+
     /**
      * This function loads the camera parameters from the file.
      */
-    int 
+    int
     Calibration::load_camera_parameters ()
     {
-        fasttrig_init ();	
+        fasttrig_init ();
         //Get the number of Cameras used
         config_get_int (this->m_ConfigHandle, "calibration.cameras.num_cameras", &this->m_NumCams);
         //Allocate memory for intrinsic parameters
@@ -154,7 +165,7 @@ namespace perls
 
         for (int i = 0; i < this->m_NumCams; i++)
           this->m_Calib.K[i] = (double*) malloc (sizeof (double)*9);
-        
+
         for (int i = 0; i < this->m_NumCams; i++)
         {
             double focal_length, camera_center_X, camera_center_Y, scale_x, scale_y;
@@ -189,16 +200,16 @@ namespace perls
               printf ("Error: Cannot load scale_y for camera_%d\n", i);
               return -1;
             }
-            
+
             //generate K matrix
             this->m_Calib.K[i][0] = focal_length*scale_x;
-            this->m_Calib.K[i][1] = 0; 
+            this->m_Calib.K[i][1] = 0;
             this->m_Calib.K[i][2] = camera_center_X;
             this->m_Calib.K[i][3] = 0;
             this->m_Calib.K[i][4] = focal_length*scale_y;
             this->m_Calib.K[i][5] = camera_center_Y;
             this->m_Calib.K[i][6] = 0; this->m_Calib.K[i][7] = 0; this->m_Calib.K[i][8] = 1;
-            
+
             sprintf (str, "calibration.cameras.camera_%d.X_hc", i);
             config_get_double_array (this->m_ConfigHandle, str, this->m_Calib.X_hi[i], 6);
             //Convert to radians
@@ -208,12 +219,46 @@ namespace perls
         printf ("Cam Param loaded \n");
         return 0;
     }
-   
+
     /**
      * This function loads the Scan from the file.
      */
-    int 
-    Calibration::load_point_cloud (char* filename)
+    int
+    Calibration::load_point_cloud_pcd (char* filename)
+    {
+        //open file to read
+        std::string input_pcd(filename);
+        std::cout << "Loading " << input_pcd << std::endl;
+        pcl::PointCloud<pcl::PointXYZI> cloud;
+        if (pcl::io::loadPCDFile<pcl::PointXYZI> (input_pcd, cloud) == -1) //* load the file
+        {
+          std::cout << "Could not open '" << filename << "'." << std::endl;
+          exit (0);
+        }
+
+        uint numPoints = cloud.size();
+        double DIST_THRESH = 10000;
+        //read all points
+        PointCloud_t pointCloud;
+        for (uint i = 0; i < numPoints; i++)
+        {
+          Point3d_t point;
+          point.x = cloud[i].x;
+          point.y = cloud[i].y;
+          point.z = cloud[i].z;
+          //std::cout << cloud[i].intensity << std::endl;
+          point.refc = (int)(cloud[i].intensity*256.0);
+          double dist = point.x*point.x + point.y*point.y + point.z*point.z;
+          point.range = dist/DIST_THRESH;
+          pointCloud.points.push_back (point);
+        }
+        this->m_vecPointClouds.push_back (pointCloud);
+        std::cout << "Num points loaded = " << pointCloud.points.size () << std::endl;
+        return (0);
+    }
+
+    int
+    Calibration::load_point_cloud_txt (char* filename)
     {
         //open file to read
         std::cout << "Loading " << filename << std::endl;
@@ -224,17 +269,17 @@ namespace perls
             exit (0);
         }
         int numPoints = 0;
-        fscanf (fptr, "%d\n", &numPoints); 
+        fscanf (fptr, "%d\n", &numPoints);
 
         double DIST_THRESH = 10000;
         //read all points
-        PointCloud_t pointCloud; 
+        PointCloud_t pointCloud;
         while (!feof (fptr))
         {
             Point3d_t point;
             fscanf (fptr, "%f %f %f %d\n", &point.x, &point.y, &point.z, &point.refc);
             double dist = point.x*point.x + point.y*point.y + point.z*point.z;
-            point.range = dist/DIST_THRESH; 
+            point.range = dist/DIST_THRESH;
             pointCloud.points.push_back (point);
             numPoints++;
         }
@@ -244,7 +289,7 @@ namespace perls
         fclose (fptr);
         return 0;
     }
-    
+
     /**
      * This function loads the images
      */
@@ -256,38 +301,34 @@ namespace perls
         image_base_name = config_get_str_or_default (this->m_ConfigHandle, "calibration.cameras.image_base_name", (char*)"image");
         char *image_type;
         image_type = config_get_str_or_default (this->m_ConfigHandle, "calibration.cameras.image_type", (char*)"ppm");
-       
-        Image_t currImage; 
+
+        Image_t currImage;
         for (int i = 0; i < this->m_NumCams; i++)
         {
             char *image_folder;
             char str[256];
             sprintf (str, "calibration.cameras.camera_%d.folder", i);
             config_get_str (this->m_ConfigHandle, str, &image_folder);
-            sprintf (imageName,"%s/%s%04d.%s", image_folder, image_base_name, imageIndex, image_type);	
+            sprintf (imageName,"%s/%s%04d.%s", image_folder, image_base_name, imageIndex, image_type);
             printf ("Loading file-: %s\n",imageName);
-            
-            IplImage* iplimage = cvLoadImage (imageName, 0); //load image as grayscale.
-            if (iplimage == NULL)
+
+            cv::Mat iplimage = cv::imread (imageName, CV_LOAD_IMAGE_GRAYSCALE); //load image as grayscale.
+            if (iplimage.empty())
             {
                printf ("Error: Cannot load Image: %s\n", imageName);
                return -1;
             }
-            //gaussian smoothing of images
-            IplImage* out = cvCreateImage (cvGetSize(iplimage), IPL_DEPTH_8U, 1);
-            cv::Mat outMat (out);
-            cv::Mat imageMat (iplimage);
-            cv::GaussianBlur (imageMat, outMat, cv::Size (3, 3), 0.75); 
-            currImage.image.push_back (out);
-            cvReleaseImage (&iplimage); 
+            //　Gaussian smoothing of images
+            cv::GaussianBlur (iplimage, iplimage, cv::Size (3, 3), 0.75);
+            currImage.image.push_back (iplimage);
         }
         this->m_vecImage.push_back (currImage);
         return 0;
     }
-    
+
     /**
      * This function loads the mask. Mask is the same for all images
-     */ 
+     */
     void
     Calibration::load_mask ()
     {
@@ -299,33 +340,33 @@ namespace perls
             int ret = config_get_str (this->m_ConfigHandle, str, &maskName);
             if (ret < 0)
             {
-                this->m_Mask.image.push_back (NULL);
+                if (this->m_vecImage.size() > 0){
+                  this->m_Mask.image.push_back(cv::Mat::ones(this->m_vecImage[i].image.back().size(), CV_8UC1));
+                }
             }
             else
             {
                 printf ("Loading file-: %s\n",maskName);
-                IplImage *iplmask = cvLoadImage (maskName, 0); 
+                cv::Mat iplmask = cv::imread (maskName, CV_LOAD_IMAGE_GRAYSCALE);
                 this->m_Mask.image.push_back (iplmask);
             }
         }
     }
-    
+
     /**
      * This function releases the image memory.
      */
-    int 
+    int
     Calibration::release_image (Image_t* image)
     {
-        for (int i = 0; i < this->m_NumCams; i++)
-            cvReleaseImage (&image->image[i]);
-
+        image->image.clear();
         return 0;
     }
-    
+
     /**
      * This function generates random numbers
-     */ 
-    void 
+     */
+    void
     Calibration::get_random_numbers (int min, int max, int* unique_random_index, int num)
     {
         srand (time (NULL));
@@ -341,7 +382,7 @@ namespace perls
           int unique = 1;
           while (1){
             for (int temp = 0; temp < s; temp++){
-              if ((rand_index - unique_random_index[temp] == 0)) 
+              if ((rand_index - unique_random_index[temp] == 0))
                unique = 0;
             }
             if (unique)
@@ -354,7 +395,7 @@ namespace perls
         }
         //printf ("Coming out of get_random_numbers ()\n");
     }
-    
+
     /**
      * This function computes the smoothed distribution at a given transformation x
      */
@@ -365,7 +406,7 @@ namespace perls
         ssc_pose_t X_il;
         double **t = (double**) malloc (sizeof (double*)*this->m_NumCams);
         double **R = (double**) malloc (sizeof (double*)*this->m_NumCams);
-        
+
         for (int i = 0; i < this->m_NumCams; i++)
         {
             t[i] = (double*) malloc (sizeof (double)*3);
@@ -376,9 +417,9 @@ namespace perls
             ssc_pose_get_xyz (X_il, t[i]);
             double rph[3];
             ssc_pose_get_rph (X_il, rph);
-            so3_rotxyz (R[i], rph);  
+            so3_rotxyz (R[i], rph);
         }
-        
+
         //count the number of points that project onto the valid image region
         double temp[3];
         double camera_xyz[3]; //point in camera ref
@@ -387,12 +428,12 @@ namespace perls
         float refc_sum = 0;
 
         Histogram hist (this->m_numBins);
-        
+
         //for every scan
         for (int scan_index = 0; scan_index < this->m_NumScans; scan_index++)
         {
             Image_t *image = &this->m_vecImage[scan_index];
-            PointCloud_t scan = this->m_vecPointClouds[scan_index]; 
+            PointCloud_t scan = this->m_vecPointClouds[scan_index];
             //For debugging
             #ifdef _DEBUG_
               Image_t debug_dest;
@@ -400,17 +441,16 @@ namespace perls
               for (int i = 0; i < this->m_NumCams; i++)
               {
                   window_name[i] = (char*) malloc (256);
-                  debug_dest.image.push_back (cvCloneImage (image->image[i])); 
+                  debug_dest.image.push_back (image->image[i].clone());
               }
             #endif
-            
-            //Loop over all points 
+            //Loop over all points
             //std::cout << "Loop over " << scan.points.size () << " points" << std::endl;
             for (int i = 0; i < scan.points.size (); i++)
             {
-                //printf("count = %d\n", count); 
+                //printf("count = %d\n", count);
                 //Get the point
-                Point3d_t point = scan.points[i]; 
+                Point3d_t point = scan.points[i];
                 //printf ("x = %lf, y = %lf, z = %lf, refc = %d\n", point.x, point.y, point.z, point.refc);
                 //project it on each camera
                 for (int j = 0; j < this->m_NumCams; j++)
@@ -432,28 +472,33 @@ namespace perls
                             int v = image_point[1]/image_point[2];
                             //printf("u = %d, v = %d\n", u, v);
                             //if image_point is within the frame
-                            if ((u > 1) && (u < image->image[j]->width) &&  (v > 1) && (v < image->image[j]->height))
+                            if ((u > 1) && (u < image->image[j].cols) &&  (v > 1) && (v < image->image[j].rows))
                             {
-                                //get the gray scale value 
-                                IplImage *img = image->image[j];
-                                IplImage *msk = this->m_Mask.image[j]; 
-                                int gray = 0; int mask = 1; 
-                                if (msk)
-                                  mask = ((uchar*)(msk->imageData + v*msk->widthStep))[u];
-    
-                                if (mask > 0) // && edge > 0) 
-                                { 
+                                //get the gray scale value
+                                cv::Mat img = image->image[j];//.clone();
+                                cv::Mat msk = this->m_Mask.image[j];//.clone();
+                                int gray = 0; int mask = 1;
+                                // if (msk)
+                                //   mask = ((uchar*)(msk->imageData + v*msk->widthStep))[u];
+                                //if (msk.size() != image->image[j].size())
+                                //  mask = 1;
+                                if (this->m_Mask.image[j].at<uchar>(v,u) == 0)
+                                  mask = 0;
+
+                                if (mask > 0) // && edge > 0)
+                                {
                                     //get weighted average of the grayscale
-                                    gray = ((uchar*)(img->imageData + v*img->widthStep))[u]/this->m_binFraction;
+                                    //gray = ((uchar*)(img->imageData + v*img->widthStep))[u]/this->m_binFraction;
+                                    gray = img.at<uchar>(v,u)/this->m_binFraction;
                                     int refc = point.refc/this->m_binFraction;
-                                    //printf("Refc = %d, Grayscale val = %d\n", refc, gray);  
+                                    //printf("Refc = %d, Grayscale val = %d\n", refc, gray);
                                     //Update histograms
-                                    hist.grayHist.at<float>(gray) = hist.grayHist.at<float>(gray) + 1; 
-                                    hist.refcHist.at<float>(refc) = hist.refcHist.at<float>(refc) + 1; 
-                                    hist.jointHist.at<float>(gray, refc) = hist.jointHist.at<float>(gray, refc) + 1; 
+                                    hist.grayHist.at<float>(gray) = hist.grayHist.at<float>(gray) + 1;
+                                    hist.refcHist.at<float>(refc) = hist.refcHist.at<float>(refc) + 1;
+                                    hist.jointHist.at<float>(gray, refc) = hist.jointHist.at<float>(gray, refc) + 1;
                                     hist.count++;
                                     gray_sum = gray_sum + gray;
-                                    refc_sum = refc_sum + refc; 
+                                    refc_sum = refc_sum + refc;
                                     #ifdef _DEBUG_
                                       //Plot the 3D points on the image
                                       if (point.z > -2.0)
@@ -486,13 +531,13 @@ namespace perls
               }
             #endif
         } //for(int scan_index = 0; scan_index < numScans; scan_index++)
-    
-        //printf ("count = %d\n", hist.count); 
+
+        //printf ("count = %d\n", hist.count);
         //Free memory
         for (int i = 0; i < this->m_NumCams; i++)
         {
-            free (t[i]);    
-            free (R[i]);    
+            free (t[i]);
+            free (R[i]);
         }
         free (t);
         free (R);
@@ -512,11 +557,10 @@ namespace perls
         //Covariances
         double sigma_gray = 0;
         double sigma_refc = 0;
+
         //Cross correlation
         double sigma_gr = 0;
-        
         Probability probMLE (this->m_numBins);
-        
         for (int i = 0; i < this->m_numBins; i++)
         {
            for (int j = 0; j < this->m_numBins; j++)
@@ -526,28 +570,25 @@ namespace perls
              //Normalize the histogram so that the value is between (0,1)
              probMLE.jointProb.at<float>(i, j) = hist.jointHist.at<float>(i, j)/(hist.count);
            }
-    
-           //calculate sample covariance 
+
+           //calculate sample covariance
            sigma_gray = sigma_gray + (hist.grayHist.at<float>(i)*(i - mu_gray)*(i - mu_gray));
            sigma_refc = sigma_refc + (hist.refcHist.at<float>(i)*(i - mu_refc)*(i - mu_refc));
-           
+
            probMLE.grayProb.at<float>(i) = hist.grayHist.at<float>(i)/hist.count;
            probMLE.refcProb.at<float>(i) = hist.refcHist.at<float>(i)/hist.count;
         }
-    
         sigma_gray = sigma_gray/hist.count;
         sigma_refc = sigma_refc/hist.count;
         sigma_gr = sigma_gr/hist.count;
         double corr_coeff = ((sigma_gr)/(sigma_gray*sigma_refc));
         corr_coeff = sqrt (corr_coeff*corr_coeff);
         this->m_corrCoeff = corr_coeff;
-        
         //Compute the optimal bandwidth (Silverman's rule of thumb)
         sigma_gray = 1.06*sqrt (sigma_gray)/pow (hist.count, 0.2);
-        sigma_refc = 1.06*sqrt (sigma_refc)/pow (hist.count, 0.2); 
-        
+        sigma_refc = 1.06*sqrt (sigma_refc)/pow (hist.count, 0.2);
         #ifdef _DEBUG_
-          printf ("mu_gray = %f, std_gray = %lf\nmu_refc = %f, std_refc = %lf\n", mu_gray, 
+          printf ("mu_gray = %f, std_gray = %lf\nmu_refc = %f, std_refc = %lf\n", mu_gray,
                               sigma_gray, mu_refc, sigma_refc);
           FILE *fptr = fopen ("gray_prob.txt", "w");
           for (int i = 0; i < this->m_numBins; i++)
@@ -563,51 +604,49 @@ namespace perls
           fflush (fptr);
           fclose (fptr);
         #endif
-        
         cv::GaussianBlur (probMLE.refcProb, probMLE.refcProb, cv::Size(0, 0), sigma_refc);
-        
         cv::GaussianBlur (probMLE.jointProb, probMLE.jointProb, cv::Size(0, 0), sigma_gray, sigma_refc);
-        probMLE.count = hist.count; 
-        return probMLE; 
+        probMLE.count = hist.count;
+        return probMLE;
     }
 
     /**
      * This function calculates the JS estimate from the MLE.
      */
-    Probability 
+    Probability
     Calibration::get_probability_JS (Probability probMLE)
     {
         //Calculate JS estimate
         //Estimate lamda from the data
-        /** 
+        /**
         //Reference:[1] Entropy inference and the James Stein estimator. Hausser and Strimmer.
         //Sample Variance of MLE
         //Using unbiased estimator of variance as given in [1]:
         //Var(\theta_k) = \frac{\theta_k(1 - \theta_k)}{n-1}
         //=> \lambda = \frac{1 - \sum_{k=0}^{K} (\theta_k)^2}{\sum_{k=0}^{K} (t_k - \theta_k)
         //Here t_k      = target distribution (here m_jointTarget)
-        //     \theta_k = MLE estimate (here probMLE.jointProb)  
+        //     \theta_k = MLE estimate (here probMLE.jointProb)
         **/
         float squareSumMLE = cv::norm (probMLE.jointProb);
-        squareSumMLE = (squareSumMLE*squareSumMLE); 
-        //Difference of MLE from the target 
+        squareSumMLE = (squareSumMLE*squareSumMLE);
+        //Difference of MLE from the target
         float squareDiffMLETarget = cv::norm (this->m_jointTarget, probMLE.jointProb);
         squareDiffMLETarget =  (squareDiffMLETarget*squareDiffMLETarget);
-         
+
         float lambda = (1.0-squareSumMLE)/squareDiffMLETarget;
         lambda = (lambda/(probMLE.count-1));
         //lambda = squareDiffMLETarget/squareSumMLE;
-        //lambda = sqrt(this->m_corrCoeff); 
+        //lambda = sqrt(this->m_corrCoeff);
         std::cout << lambda << " " << squareSumMLE << " " << squareDiffMLETarget << std::endl;
-        //lambda = 1 - sqrt(squareSumMLE); 
-        //lambda = 0.0; 
+        //lambda = 1 - sqrt(squareSumMLE);
+        //lambda = 0.0;
         if (lambda > 1)
             lambda = 1;
         if (lambda < 0)
-            lambda = 0; 
-        
+            lambda = 0;
+
         //Scale the target distribution by lambda
-        //Scale the MLE or the histograms by (1-lambda)  
+        //Scale the MLE or the histograms by (1-lambda)
         //Get the JS estimate as a weighted combination of target and the MLE
         Probability probJS (this->m_numBins);
 
@@ -617,31 +656,31 @@ namespace perls
         //cv::GaussianBlur (margJSEstimate1, margJSEstimate1, cv::Size(1, 5), 0, 1.2);
         probJS.refcProb = this->m_refcTarget*lambda + probMLE.refcProb*(1.0-lambda);
         //cv::GaussianBlur (margJSEstimate2, margJSEstimate2, cv::Size(1, 5), 0, 1.2);
-        
+
         return probJS;
     }
-    
+
     /**
      * This calculates the Bayes estimate of distribution
-     */ 
-    Probability 
+     */
+    Probability
     Calibration::get_probability_Bayes (Histogram hist)
     {
         float a = 1; //0.5 , 1/this->m_numBins, sqrt (count)/this->m_numBins etc
         float A_joint = this->m_numBins*this->m_numBins;
         float A_marg = this->m_numBins;
         Probability probBayes (this->m_numBins);
-    
+
         //Calculate sample covariance matrix
         float mu_gray = hist.gray_sum/hist.count;
         float mu_refc = hist.refc_sum/hist.count;
-        std::cout << mu_gray << " " << mu_refc << std::endl;
+        //std::cout << mu_gray << " " << mu_refc << std::endl;
         //Covariances
         double sigma_gray = 0;
         double sigma_refc = 0;
         //Cross correlation
         double sigma_gr = 0;
-        
+
         for (int i = 0; i < this->m_numBins; i++)
         {
            for (int j = 0; j < this->m_numBins; j++)
@@ -651,35 +690,35 @@ namespace perls
              //Normalize the histogram so that the value is between (0,1)
              probBayes.jointProb.at<float>(i, j) = (hist.jointHist.at<float>(i, j)+a)/(hist.count + A_joint);
            }
-    
-           //calculate sample covariance 
+
+           //calculate sample covariance
            sigma_gray = sigma_gray + (hist.grayHist.at<float>(i)*(i - mu_gray)*(i - mu_gray));
            sigma_refc = sigma_refc + (hist.refcHist.at<float>(i)*(i - mu_refc)*(i - mu_refc));
-           
+
            probBayes.grayProb.at<float>(i) = (hist.grayHist.at<float>(i) + a)/(hist.count + A_marg);
            probBayes.refcProb.at<float>(i) = (hist.refcHist.at<float>(i) + a)/(hist.count + A_marg);
         }
-    
+
         sigma_gray = sigma_gray/hist.count;
         sigma_refc = sigma_refc/hist.count;
         sigma_gr = sigma_gr/hist.count;
         double corr_coeff = ((sigma_gr)/(sigma_gray*sigma_refc));
         corr_coeff = sqrt (corr_coeff*corr_coeff);
         this->m_corrCoeff = corr_coeff;
-        
+
         //Compute the optimal bandwidth (Silverman's rule of thumb)
         sigma_gray = 1.06*sqrt (sigma_gray)/pow (hist.count, 0.2);
-        sigma_refc = 1.06*sqrt (sigma_refc)/pow (hist.count, 0.2); 
-        
+        sigma_refc = 1.06*sqrt (sigma_refc)/pow (hist.count, 0.2);
+
         cv::GaussianBlur (probBayes.grayProb, probBayes.grayProb, cv::Size(0, 0), sigma_gray);
-        
+
         cv::GaussianBlur (probBayes.refcProb, probBayes.refcProb, cv::Size(0, 0), sigma_refc);
-        
+
         cv::GaussianBlur (probBayes.jointProb, probBayes.jointProb, cv::Size(0, 0), sigma_gray, sigma_refc);
 
-        return probBayes; 
+        return probBayes;
     }
- 
+
     /**
      * This function calculates the cost based on mutual information with multiple scans
      */
@@ -689,7 +728,7 @@ namespace perls
         //Get MLE of probability distribution
         Histogram hist = get_histogram (x0);
         Probability prob;
-        Probability probMLE; 
+        Probability probMLE;
         switch (this->m_estimatorType)
         {
             case 1: //MLE
@@ -697,50 +736,57 @@ namespace perls
                 break;
             case 2: //James-Stein type
                 probMLE = get_probability_MLE (hist);
-                prob = get_probability_JS (probMLE); 
+                prob = get_probability_JS (probMLE);
                 break;
             case 3: //Bayes estimator
                 prob = get_probability_Bayes (hist);
                 break;
         }
-
         //Calculate log of JS estimate
         cv::Mat jointLog = cv::Mat::zeros(this->m_numBins, this->m_numBins, CV_32FC1);
-        cv::Mat grayLog = cv::Mat::zeros(1, this->m_numBins, CV_32FC1); 
+        cv::Mat grayLog = cv::Mat::zeros(1, this->m_numBins, CV_32FC1);
         cv::Mat refcLog = cv::Mat::zeros(1, this->m_numBins, CV_32FC1);
- 
+
         cv::log (prob.jointProb, jointLog);
         cv::log (prob.grayProb, grayLog);
         cv::log (prob.refcProb, refcLog);
-        
+
         cv::Mat jointEntropyMat, grayEntropyMat, refcEntropyMat;
         //jointEntropyMat = jointJSEstimate*jointJSLog;
         cv::multiply (prob.jointProb, jointLog, jointEntropyMat);
         //margEntropyMat1 = margJSEstimate1*margJSLog1;
-        cv::multiply (prob.grayProb, grayLog, grayEntropyMat); 
+        cv::multiply (prob.grayProb, grayLog, grayEntropyMat);
         //margEntropyMat2 = margJSEstimate2*margJSLog2;
-        cv::multiply (prob.refcProb, refcLog, refcEntropyMat); 
-        
+        cv::multiply (prob.refcProb, refcLog, refcEntropyMat);
         //Sum all the elements
+        cv::Mat temp_zeros_gray = cv::Mat::zeros(1, this->m_numBins, CV_32FC1);
+        cv::Mat mask_gray = cv::Mat(grayEntropyMat != grayEntropyMat);
+        temp_zeros_gray.copyTo(grayEntropyMat, mask_gray);
         float Hx  = cv::norm (grayEntropyMat, cv::NORM_L1);
+        cv::Mat temp_zeros_refc = cv::Mat::zeros(1, this->m_numBins, CV_32FC1);
+        cv::Mat mask_refc = cv::Mat(refcEntropyMat != refcEntropyMat);
+        temp_zeros_refc.copyTo(refcEntropyMat, mask_refc);
         float Hy  = cv::norm (refcEntropyMat, cv::NORM_L1);
+
+        cv::Mat temp_zeros_joint = cv::Mat::zeros(this->m_numBins, this->m_numBins, CV_32FC1);
+        cv::Mat mask_joint = cv::Mat(jointEntropyMat != jointEntropyMat);
+        temp_zeros_joint.copyTo(jointEntropyMat, mask_joint);
+
         float Hxy = cv::norm (jointEntropyMat, cv::NORM_L1);
-        
         float cost = Hx + Hy - Hxy;
-        //float cost = Hxy;
         return cost;
     }
-    
+
     /**
      * This function calculates the chi square cost
      */
-    float 
+    float
     Calibration::chi_square_cost (ssc_pose_t x)
     {
         //Get the joint and marginal probabilities
         Histogram hist = get_histogram (x);
         Probability P = get_probability_MLE (hist);
-        
+
         //Calculate the chi square cost
         //sum (P(x,y) - P(x)P(y))^2/(P(x).P(y))
         float cost = 0;
@@ -758,27 +804,27 @@ namespace perls
     }
 
     /**
-     * This function performs the exhaustive grid based search for the transformation 
+     * This function performs the exhaustive grid based search for the transformation
      * parameters
      */
     float
     Calibration::exhaustive_grid_search (ssc_pose_t x0_hl)
     {
         //create the 1st level grid around x0_hl
-        //1st level grid : 
+        //1st level grid :
         //[x, y, z] = +-0.20m and step = 0.05m
         //[r, p, h] = +-3 degrees and step = +-1 degree
         ssc_pose_t x0;
         ssc_pose_t x0_max_l1;
         ssc_pose_t x0_max_l2;
-     
+
         double gridsize_trans = 0.2;
         double step_trans = 0.05;
         double gridsize_rot = 3*DTOR;
         double step_rot = 1*DTOR;
-        double max_cost_l1 = 0; 
+        double max_cost_l1 = 0;
         ssc_pose_set (x0_max_l1, x0_hl);
-    
+
         float curr_cost = 0;
         for (double x = x0_hl[0] - gridsize_trans; x <= x0_hl[0] + gridsize_trans; x = x + step_trans)
         {
@@ -793,38 +839,38 @@ namespace perls
                   for (double h = x0_hl[5] - gridsize_rot; h <= x0_hl[5] + gridsize_rot; h = h + step_rot)
                   {
                     x0[0] = x; x0[1] = y; x0[2] = z;
-                    x0[3] = r; x0[4] = p; x0[5] = h; 
+                    x0[3] = r; x0[4] = p; x0[5] = h;
                     curr_cost = this->mi_cost (x0);
-    
+
                     if (curr_cost > max_cost_l1)
                     {
                       max_cost_l1 = curr_cost;
                       ssc_pose_set (x0_max_l1, x0);
                       //printf("%lf %lf %lf %lf %lf %lf %lf\n", max_cost_l1, x0[0], x0[1], x0[2], x0[3]*RTOD, x0[4]*RTOD, x0[5]*RTOD);
-                    } 
+                    }
                   }
                 }
               }
             }
           }
         }
-    
-        printf ("Level 1 Grid search done\n"); 
+
+        printf ("Level 1 Grid search done\n");
         printf ("%lf %lf %lf %lf %lf %lf %lf\n", max_cost_l1, x0_max_l1[0], x0_max_l1[1], x0_max_l1[2], x0_max_l1[3]*RTOD, x0_max_l1[4]*RTOD, x0_max_l1[5]*RTOD);
         //create the second level grid around the point with max cost in level 1 search
         //2nd level grid :
         //[x, y, z] = +-0.05m and step = 0.01m
         //[r, p, h] = +-1 degree and step = 0.1 degree
         //max cost point
-        ssc_pose_set (x0_hl, x0_max_l1); 
+        ssc_pose_set (x0_hl, x0_max_l1);
         step_trans = 0.01;
         gridsize_trans = 0.04;
         gridsize_rot = 0.5*DTOR;
         step_rot = 0.1*DTOR;
         float max_cost_l2 = this->mi_cost (x0_max_l1);
         ssc_pose_set (x0_max_l2, x0_max_l1);
-     
-        curr_cost = 0; 
+
+        curr_cost = 0;
         for (double x = x0_hl[0] - gridsize_trans; x <= x0_hl[0] + gridsize_trans; x = x + step_trans)
         {
           for (double y = x0_hl[1] - gridsize_trans; y <= x0_hl[1] + gridsize_trans; y = y + step_trans)
@@ -838,28 +884,28 @@ namespace perls
                   for (double h = x0_hl[5] - gridsize_rot; h <= x0_hl[5] + gridsize_rot; h = h + step_rot)
                   {
                     x0[0] = x; x0[1] = y; x0[2] = z;
-                    x0[3] = r; x0[4] = p; x0[5] = h; 
+                    x0[3] = r; x0[4] = p; x0[5] = h;
                     curr_cost = this->mi_cost (x0);
-    
+
                     if (curr_cost > max_cost_l2)
                     {
                       max_cost_l2 = curr_cost;
                       ssc_pose_set(x0_max_l2, x0);
-                    } 
+                    }
                   }
                 }
               }
             }
           }
         }
-        
+
         //Set x0_hl to the maxima.
-        ssc_pose_set (x0_hl, x0_max_l2); 
+        ssc_pose_set (x0_hl, x0_max_l2);
         return max_cost_l2;
     }
 
     /**
-     * This function performs the gradient descent search for the transformation 
+     * This function performs the gradient descent search for the transformation
      * parameters
      */
     float
@@ -872,10 +918,10 @@ namespace perls
         double gama_trans_l = 0.001;
         double gama_rot_u = 0.05;
         double gama_rot_l = 0.0005;
-    
+
         double deltax = 0.01, deltay = 0.01, deltaz = 0.01;
         double deltar = 0.1*DTOR, deltap = 0.1*DTOR, deltah = 0.1*DTOR;
-     
+
         int index = 0;
         ssc_pose_t xk, xk_minus_1;
         ssc_pose_set (xk, x0_hl);
@@ -895,117 +941,116 @@ namespace perls
             #endif
             if (f_prev > f_max)
                 f_max = f_prev;
-    
-            double _f = 0; 
-    
+            double _f = 0;
+
             double x, y, z, r, p, h;
             x = xk[0]; y = xk[1]; z = xk[2];
             r = xk[3]; p = xk[4]; h = xk[5];
-    
+
             double delta[6];
             delta[0] = x+deltax; delta[1] = y; delta[2] = z;
             delta[3] = r; delta[4] = p; delta[5] = h;
             #ifdef CHI_SQUARE_TEST
               _f = chi_square_cost (delta);
-            #else 
+            #else
               _f = mi_cost (delta);
             #endif
-    
+
             double delF_delX = (_f - f_prev)/deltax;
-            
+
             delta[0] = x; delta[1] = y+deltay; delta[2] = z;
-            delta[3] = r; delta[4] = p; delta[5] = h; 
+            delta[3] = r; delta[4] = p; delta[5] = h;
             #ifdef CHI_SQUARE_TEST
               _f = chi_square_cost (delta);
-            #else 
+            #else
               _f = mi_cost (delta);
             #endif
             double delF_delY = (_f - f_prev)/deltay;
-            
+
             delta[0] = x; delta[1] = y; delta[2] = z+deltaz;
-            delta[3] = r; delta[4] = p; delta[5] = h; 
+            delta[3] = r; delta[4] = p; delta[5] = h;
             #ifdef CHI_SQUARE_TEST
               _f = chi_square_cost (delta);
-            #else 
+            #else
               _f = mi_cost (delta);
             #endif
             double delF_delZ = (_f - f_prev)/deltaz;
-            
+
             delta[0] = x; delta[1] = y; delta[2] = z;
-            delta[3] = r+deltar; delta[4] = p; delta[5] = h; 
+            delta[3] = r+deltar; delta[4] = p; delta[5] = h;
             #ifdef CHI_SQUARE_TEST
               _f = chi_square_cost (delta);
-            #else 
+            #else
               _f = mi_cost (delta);
             #endif
             double delF_delR = (_f - f_prev)/deltar;
-            
+
             delta[0] = x; delta[1] = y; delta[2] = z;
-            delta[3] = r; delta[4] = p+deltap; delta[5] = h; 
+            delta[3] = r; delta[4] = p+deltap; delta[5] = h;
             #ifdef CHI_SQUARE_TEST
               _f = chi_square_cost (delta);
-            #else 
+            #else
               _f = mi_cost (delta);
             #endif
             double delF_delP = (_f - f_prev)/deltap;
-            
+
             delta[0] = x; delta[1] = y; delta[2] = z;
-            delta[3] = r; delta[4] = p; delta[5] = h+deltah; 
+            delta[3] = r; delta[4] = p; delta[5] = h+deltah;
             #ifdef CHI_SQUARE_TEST
               _f = chi_square_cost (delta);
-            #else 
+            #else
               _f = mi_cost (delta);
             #endif
             double delF_delH = (_f - f_prev)/deltah;
-    
-            double norm_delF_del_trans = sqrt(delF_delX*delF_delX + delF_delY*delF_delY + delF_delZ*delF_delZ); 
+
+            double norm_delF_del_trans = sqrt(delF_delX*delF_delX + delF_delY*delF_delY + delF_delZ*delF_delZ);
             double norm_delF_del_rot   = sqrt(delF_delR*delF_delR + delF_delP*delF_delP + delF_delH*delF_delH);
-    
+
             delF_delX = delF_delX/norm_delF_del_trans;
             delF_delY = delF_delY/norm_delF_del_trans;
             delF_delZ = delF_delZ/norm_delF_del_trans;
             delF_delR = delF_delR/norm_delF_del_rot;
             delF_delP = delF_delP/norm_delF_del_rot;
             delF_delH = delF_delH/norm_delF_del_rot;
-   
+
             double delta_trans = ((xk[0] - xk_minus_1[0])*(xk[0] - xk_minus_1[0]) + (xk[1] - xk_minus_1[1])*(xk[1] - xk_minus_1[1])
                          + (xk[2] - xk_minus_1[2])*(xk[2] - xk_minus_1[2]));
             double delta_rot = ((xk[3] - xk_minus_1[3])*(xk[3] - xk_minus_1[3]) + (xk[4] - xk_minus_1[4])*(xk[4] - xk_minus_1[4])
                          + (xk[5] - xk_minus_1[5])*(xk[5] - xk_minus_1[5]));
-            
+
             //get the scaling factor
             if (delta_trans > 0)
             {
                double temp_deno_trans = ((xk[0] - xk_minus_1[0])*(delF_delX - delF_delX_) +
                          (xk[1] - xk_minus_1[1])*(delF_delY - delF_delY_) + (xk[2] - xk_minus_1[2])*(delF_delZ - delF_delZ_));
                temp_deno_trans = sqrt (temp_deno_trans*temp_deno_trans);
-               gama_trans = delta_trans/temp_deno_trans; 
+               gama_trans = delta_trans/temp_deno_trans;
             }
             else
                gama_trans = gama_trans_u;
-    
+
             if (delta_rot > 0)
             {
                double temp_deno_rot = ((xk[3] - xk_minus_1[3])*(delF_delR - delF_delR_) +
                          (xk[4] - xk_minus_1[4])*(delF_delP - delF_delP_) + (xk[5] - xk_minus_1[5])*(delF_delH - delF_delH_));
                temp_deno_rot = sqrt (temp_deno_rot*temp_deno_rot);
-               gama_rot = delta_rot/temp_deno_rot;  
+               gama_rot = delta_rot/temp_deno_rot;
             }
             else
                gama_rot = gama_rot_u;
-            
+
             //printf ("Before: gama_trans = %f, gama_rot = %f\n", gama_trans, gama_rot);
             //Since we are looking at maxima.
             if (gama_trans > gama_trans_u)
                 gama_trans = gama_trans_u;
             if (gama_trans < gama_trans_l)
                 gama_trans = gama_trans_l;
-            
+
             if (gama_rot > gama_rot_u)
                 gama_rot = gama_rot_u;
             if (gama_rot < gama_rot_l)
                 gama_rot = gama_rot_l;
-    
+
             //printf ("After: gama_trans = %f, gama_rot = %f\n", gama_trans, gama_rot);
             xk_minus_1[0] = xk[0];
             xk_minus_1[1] = xk[1];
@@ -1013,21 +1058,21 @@ namespace perls
             xk_minus_1[3] = xk[3];
             xk_minus_1[4] = xk[4];
             xk_minus_1[5] = xk[5];
-     
+
             xk[0] = xk[0] + gama_trans*delF_delX;
             xk[1] = xk[1] + gama_trans*delF_delY;
             xk[2] = xk[2] + gama_trans*delF_delZ;
             xk[3] = xk[3] + gama_rot*delF_delR;
             xk[4] = xk[4] + gama_rot*delF_delP;
             xk[5] = xk[5] + gama_rot*delF_delH;
-    
+
             double f_curr;
             #ifdef CHI_SQUARE_TEST
               f_curr = chi_square_cost (xk);
-            #else 
+            #else
               f_curr = mi_cost (xk);
             #endif
-    
+
             if (f_curr < f_prev)
             {
               xk[0] = xk[0] - gama_trans*delF_delX;
@@ -1040,7 +1085,7 @@ namespace perls
               gama_rot_l = gama_rot_l/1.2;
               gama_trans_u = gama_trans_u/1.2;
               gama_trans_l = gama_trans_l/1.2;
-              
+
               deltax = deltax/1.1; deltay = deltay/1.1; deltaz = deltaz/1.1;
               deltar = deltar/1.1; deltap = deltap/1.1; deltah = deltah/1.1;
               //printf ("f_curr = %lf,  f_prev = %lf, deltax = %lf\n", f_curr, f_prev, deltax);
@@ -1048,11 +1093,11 @@ namespace perls
               if (deltax < 0.001)
                  break;
               else
-                 continue; 
+                 continue;
             }
-    
+
             index = index + 1;
-            
+
             delF_delX_ = delF_delX;
             delF_delY_ = delF_delY;
             delF_delZ_ = delF_delZ;
@@ -1061,7 +1106,7 @@ namespace perls
             delF_delH_ = delF_delH;
 
             printf ("%lf %lf %lf %lf %lf %lf %lf\n", f_curr, xk[0], xk[1], xk[2], xk[3]*RTOD, xk[4]*RTOD, xk[5]*RTOD);
-    
+
         }
         ssc_pose_set (x0_hl, xk);
         return index;
@@ -1085,7 +1130,7 @@ namespace perls
         //get P at x
         Histogram hist = get_histogram (x);
         Probability P = get_probability_MLE (hist);
-        
+
         ssc_pose_t tempX;
 
         //Get dLnP_dtx
@@ -1106,7 +1151,7 @@ namespace perls
         tempX[0] = x[0]; tempX[1] = x[1] - h_t; tempX[2] = x[2];
         tempX[3] = x[3]; tempX[4] = x[4]; tempX[5] = x[5];
         //Probability P_minus_dty = get_probability_MLE (tempX);
-        
+
         //Get dLnP_dtz
         tempX[0] = x[0]; tempX[1] = x[1]; tempX[2] = x[2] + h_t;
         tempX[3] = x[3]; tempX[4] = x[4]; tempX[5] = x[5];
@@ -1115,7 +1160,7 @@ namespace perls
         tempX[0] = x[0]; tempX[1] = x[1]; tempX[2] = x[2] - h_t;
         tempX[3] = x[3]; tempX[4] = x[4]; tempX[5] = x[5];
         //Probability P_minus_dtz = get_probability_MLE (tempX);
-        
+
         //Get dLnP_drx
         double h_r = 0.001*DTOR;
         tempX[0] = x[0]; tempX[1] = x[1]; tempX[2] = x[2];
@@ -1125,7 +1170,7 @@ namespace perls
         tempX[0] = x[0]; tempX[1] = x[1]; tempX[2] = x[2];
         tempX[3] = x[3] - h_r; tempX[4] = x[4]; tempX[5] = x[5];
         //Probability P_minus_drx = get_probability_MLE (tempX);
-        
+
         //Get dLnP_dry
         tempX[0] = x[0]; tempX[1] = x[1]; tempX[2] = x[2];
         tempX[3] = x[3]; tempX[4] = x[4] + h_r; tempX[5] = x[5];
@@ -1134,7 +1179,7 @@ namespace perls
         tempX[0] = x[0]; tempX[1] = x[1]; tempX[2] = x[2];
         tempX[3] = x[3]; tempX[4] = x[4] - h_r; tempX[5] = x[5];
         //Probability P_minus_dry = get_probability_MLE (tempX);
-        
+
         //Get dLnP_drz
         tempX[0] = x[0]; tempX[1] = x[1]; tempX[2] = x[2];
         tempX[3] = x[3]; tempX[4] = x[4]; tempX[5] = x[5] + h_r;
@@ -1175,7 +1220,7 @@ namespace perls
                 if (P_plus_drz.jointProb.at<float>(i, j) > 0 && P_minus_drz.jointProb.at<float>(i, j) > 0)
                     dLnP_drz.at<float>(i, j) = (log (P_plus_drz.jointProb.at<float>(i, j)) - log (P_minus_drz.jointProb.at<float>(i, j)))/(2*h_r);
             }
-        } 
+        }
 #endif
         for (int i = 0; i < this->m_numBins; i++)
         {
@@ -1199,8 +1244,8 @@ namespace perls
                 if (P_plus_drz.jointProb.at<float>(i, j) > 0 && P.jointProb.at<float>(i, j) > 0)
                     dLnP_drz.at<float>(i, j) = (log (P_plus_drz.jointProb.at<float>(i, j)) - log (P.jointProb.at<float>(i, j)))/(h_r);
             }
-        } 
-        
+        }
+
         //Calculate F
         for(int k = 0; k < this->m_numBins; k++)
         {
@@ -1233,7 +1278,7 @@ namespace perls
         F[1][0] = F[0][1];
         F[3][0] = F[0][3];
         F[4][0] = F[0][4];
-        F[5][0] = F[0][5];   
+        F[5][0] = F[0][5];
         F[2][1] = F[1][2];
         F[3][1] = F[1][3];
         F[4][1] = F[1][4];
@@ -1244,7 +1289,7 @@ namespace perls
         F[4][3] = F[3][4];
         F[5][3] = F[3][5];
         F[5][4] = F[4][5];
-        
+
         //calculate Covariance = inv(F)
         gsl_matrix* F_gsl =  gsl_matrix_alloc (6, 6);
         for (int i = 0; i < 6; i++)
@@ -1253,17 +1298,17 @@ namespace perls
           {
              gsl_matrix_set (F_gsl, i, j, F[i][j]);
           }
-        }  
+        }
         gsl_permutation *P_gsl = gsl_permutation_calloc (6);
         int signum;
         gsl_linalg_LU_decomp (F_gsl, P_gsl, &signum);
         gsl_matrix* F_inv = gsl_matrix_alloc (6, 6);
         gsl_linalg_LU_invert (F_gsl, P_gsl, F_inv);
-        
+
         //Free Memory
         gsl_matrix_free(F_gsl);
-        gsl_permutation_free(P_gsl);  
-        
+        gsl_permutation_free(P_gsl);
+
         return F_inv;
     }
 }
