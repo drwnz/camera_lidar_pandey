@@ -32,7 +32,7 @@ LIBRARIES USED
   This version is implemented with the help of some external
   code:
   1) GSL          : http://www.gnu.org/software/gsl/
-  2) OpenCV 3 : http://opencv.willowgarage.com/wiki/
+  2) OpenCV 3     : http://opencv.willowgarage.com/wiki/
                     (Lower versions of opencv might not work)
   3) Glib         : http://developer.gnome.org/glib/stable/
   4) CMake        : http://www.cmake.org/
